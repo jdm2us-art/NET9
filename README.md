@@ -208,4 +208,4 @@ R-HQ-Main теряет связь с филиалом (отключается gi
 
 ![1](1.jgp)
 
-![2]
+![2](https://github.com/jdm2us-art/NET9/blob/main/net9-1.pkt)
