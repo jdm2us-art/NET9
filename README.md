@@ -216,8 +216,10 @@ R-HQ-Main теряет связь с филиалом (отключается gi
 
 10.1.0.0/30 \
 10.2.0.0/30 \
-10.3.0.0/30 \
-Для имитации сети Интернет можно добавить еще один маршрутизатор, к которому подключить все три канала интернет. На этом же маршрутизаторе создать Loopback интерфейс с адресом 10.10.10.10/32 и использовать этот адрес для проверки доступности сети Интернет.
+10.3.0.0/30 
+
+Для имитации сети Интернет можно добавить еще один маршрутизатор, к которому подключить все три канала интернет. \
+На этом же маршрутизаторе создать Loopback интерфейс с адресом 10.10.10.10/32 и использовать этот адрес для проверки доступности сети Интернет.
 
 Необходимо обеспечить компании доступ в Интернет. Непрерывно и с балансировкой по трем каналам.
 
@@ -229,3 +231,283 @@ R-HQ-Main теряет связь с филиалом (отключается gi
 На вопрос 3 - привести настройки интерфейсов в текстовом виде (в синтаксисе Cisco)
 
 # ОТВЕТ:
+
+Схема подключения
+
+                        ЦЕНТРАЛЬНЫЙ ОФИС (192.168.0.0/24)
+                              ┌─────────────┐
+                              │   PC-HQ     │
+                              │  .10        │
+                              │ GW: .254    │
+                              └──────┬──────┘
+                                     │
+                              ┌──────┴──────┐
+                              │   SW-HQ     │
+                              └──────┬──────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    │                │                │
+             ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐
+             │  R-HQ-1     │  │  R-HQ-2     │  │  R-HQ-3     │
+             │  GLBP AVG   │  │  GLBP AVF   │  │  GLBP AVF   │
+             │  .1         │  │  .2         │  │  .3         │
+             └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+                    │                │                │
+           10.1.0.0/30       10.2.0.0/30       10.3.0.0/30
+                    │                │                │
+                    └────────────────┼────────────────┘
+                                     │
+                              ┌──────┴──────┐
+                              │  R-INTERNET │
+                              │  (ISP)      │
+                              │  Loopback0  │
+                              │ 10.10.10.10 │
+                              └─────────────┘
+                              СЕТЬ ИНТЕРНЕТ
+
+3. Таблица IP-адресации
+
+Устройство	Интерфейс	IP-адрес	Маска	Примечание \
+PC-HQ	NIC	192.168.0.10	255.255.255.0	Шлюз: 192.168.0.254 (GLBP) \
+SW-HQ	-	-	-	Коммутатор доступа \
+R-HQ-1	Gig0/0	192.168.0.1	255.255.255.0	GLBP Active Virtual Gateway (AVG) \
+R-HQ-1	Gig0/1	10.1.0.1	255.255.255.252	Канал в интернет #1 \
+R-HQ-2	Gig0/0	192.168.0.2	255.255.255.0	GLBP AVF \
+R-HQ-2	Gig0/1	10.2.0.1	255.255.255.252	Канал в интернет #2 \
+R-HQ-3	Gig0/0	192.168.0.3	255.255.255.0	GLBP AVF \
+R-HQ-3	Gig0/1	10.3.0.1	255.255.255.252	Канал в интернет #3 \
+R-INTERNET	Gig0/0	10.1.0.2	255.255.255.252	К R-HQ-1 \
+R-INTERNET	Gig0/1	10.2.0.2	255.255.255.252	К R-HQ-2 \
+R-INTERNET	Gig0/2	10.3.0.2	255.255.255.252	К R-HQ-3 \
+R-INTERNET	Loopback0	10.10.10.10	255.255.255.255	Для проверки доступности \
+GLBP Виртуальный IP: 192.168.0.254 (группа 1)
+
+5. Полные конфигурации
+   
+Конфигурация R-HQ-1 (GLBP AVG - Active Virtual Gateway) \
+
+enable \
+configure terminal \
+hostname R-HQ-1 \
+no ip domain-lookup
+
+! Настройка интерфейса в локальную сеть с GLBP \
+interface gig0/0 \
+ ip address 192.168.0.1 255.255.255.0 \
+ glbp 1 ip 192.168.0.254 \
+ glbp 1 priority 150 \
+ glbp 1 preempt \
+ glbp 1 load-balancing round-robin \
+ glbp 1 weighting 100 \
+ glbp 1 weighting track gig0/1 30 \
+ no shutdown \
+ exit
+
+! Интерфейс в интернет (канал #1) \
+interface gig0/1 \
+ ip address 10.1.0.1 255.255.255.252 \
+ no shutdown \
+ exit
+
+! Маршрут по умолчанию через интернет \
+ip route 0.0.0.0 0.0.0.0 10.1.0.2
+
+! NAT для доступа в интернет \
+ip access-list standard NAT-ACL \
+ permit 192.168.0.0 0.0.0.255 \
+ exit
+
+ip nat inside source list NAT-ACL interface gig0/1 overload
+
+interface gig0/0 \
+ ip nat inside \
+ exit
+
+interface gig0/1 \
+ ip nat outside \
+ exit
+
+end \
+write memory 
+
+Конфигурация R-HQ-2 (GLBP AVF) 
+
+enable \
+configure terminal \
+hostname R-HQ-2 \
+no ip domain-lookup
+
+interface gig0/0 \
+ ip address 192.168.0.2 255.255.255.0 \
+ glbp 1 ip 192.168.0.254 \
+ glbp 1 priority 100 \
+ glbp 1 preempt \
+ glbp 1 load-balancing round-robin \
+ glbp 1 weighting 100 \
+ glbp 1 weighting track gig0/1 30 \
+ no shutdown \
+ exit
+
+interface gig0/1 \
+ ip address 10.2.0.1 255.255.255.252 \
+ no shutdown \
+ exit
+
+ip route 0.0.0.0 0.0.0.0 10.2.0.2
+
+ip access-list standard NAT-ACL \
+ permit 192.168.0.0 0.0.0.255 \
+ exit
+
+ip nat inside source list NAT-ACL interface gig0/1 overload
+
+interface gig0/0 \
+ ip nat inside \
+ exit
+
+interface gig0/1 \
+ ip nat outside \
+ exit
+
+end \
+write memory 
+
+Конфигурация R-HQ-3 (GLBP AVF) 
+
+enable \
+configure terminal \
+hostname R-HQ-3 \
+no ip domain-lookup
+
+interface gig0/0 \
+ ip address 192.168.0.3 255.255.255.0 \
+ glbp 1 ip 192.168.0.254 \
+ glbp 1 priority 100 \
+ glbp 1 preempt \
+ glbp 1 load-balancing round-robin \
+ glbp 1 weighting 100 \
+ glbp 1 weighting track gig0/1 30 \
+ no shutdown \
+ exit
+
+interface gig0/1 \
+ ip address 10.3.0.1 255.255.255.252 \
+ no shutdown \
+ exit
+
+ip route 0.0.0.0 0.0.0.0 10.3.0.2
+
+ip access-list standard NAT-ACL \
+ permit 192.168.0.0 0.0.0.255 \
+ exit
+
+ip nat inside source list NAT-ACL interface gig0/1 overload
+
+interface gig0/0 \
+ ip nat inside \
+ exit
+
+interface gig0/1 \
+ ip nat outside \
+ exit
+
+end \
+write memory
+
+Конфигурация R-INTERNET (Имитация провайдера)
+
+enable \
+configure terminal \
+hostname R-INTERNET \
+no ip domain-lookup
+
+! Интерфейсы для подключения к трем каналам \
+interface gig0/0 \
+ ip address 10.1.0.2 255.255.255.252 \
+ no shutdown \
+ exit
+
+interface gig0/1 \
+ ip address 10.2.0.2 255.255.255.252 \
+ no shutdown \
+ exit
+
+interface gig0/2 \
+ ip address 10.3.0.2 255.255.255.252 \
+ no shutdown \
+ exit
+
+! Loopback для имитации сервера в интернете \
+interface loopback0 \
+ ip address 10.10.10.10 255.255.255.255 \
+ exit
+
+! Маршруты обратно к офису (для ответа на ping) \
+ip route 192.168.0.0 255.255.255.0 10.1.0.1 \
+ip route 192.168.0.0 255.255.255.0 10.2.0.1 \
+ip route 192.168.0.0 255.255.255.0 10.3.0.1 
+
+end \
+write memory
+
+Конфигурация SW-HQ (без изменений)
+
+enable \
+configure terminal \
+hostname SW-HQ
+
+interface fastEthernet 0/1 \
+ switchport mode access \
+ exit
+
+interface gig0/1 \
+ switchport mode access \
+ exit
+
+interface gig0/2 \
+ switchport mode access \
+ exit
+
+interface gig0/3 \
+ switchport mode access \
+ exit
+
+end \
+write memory 
+
+Настройка PC-HQ
+
+IP Address: 192.168.0.10
+
+Subnet Mask: 255.255.255.0
+
+Default Gateway: 192.168.0.254 (GLBP виртуальный IP)
+
+# Ключевые особенности GLBP
+
+Параметр	Описание \
+Балансировка	Round-robin (по умолчанию) — равномерно распределяет трафик \
+Максимум роутеров	4 в одной группе \
+Время переключения	1-3 секунды (быстрее, чем HSRP) \
+Отказоустойчивость	AVG и AVF автоматически перераспределяют нагрузку \
+Отслеживание каналов	weighting track позволяет учитывать состояние внешних каналов \
+NAT	На каждом роутере свой NAT (т.к. разные IP на внешних интерфейсах)
+
+NAT на каждом роутере \
+У каждого роутера свой внешний IP-адрес (10.1.0.1, 10.2.0.1, 10.3.0.1)
+
+NAT настраивается индивидуально на каждом роутере
+
+Это позволяет использовать все три канала одновременно
+
+Маршрутизация обратно от интернета \
+На R-INTERNET нужно прописать маршруты обратно к офису через все три канала
+
+Иначе пакеты от 10.10.10.10 не смогут вернуться
+
+Особенности GLBP в CPT \
+Cisco Packet Tracer поддерживает GLBP начиная с версии 7.0+
+
+Проверьте, что используете роутеры 2911 или 4321
+
+Команда show glbp работает корректно
