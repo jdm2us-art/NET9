@@ -206,6 +206,6 @@ R-HQ-Main теряет связь с филиалом (отключается gi
 
 ИЛИ настроить standby 1 track gig0/1 60
 
-![1](1.jgp)
+![1](1.jpg)
 
-![2](https://github.com/jdm2us-art/NET9/blob/main/net9-1.pkt)
+![PKT FILE](https://github.com/jdm2us-art/NET9/blob/main/net9-1.pkt)
